@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Test / tooling artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+logs/
+test-results/
+playwright-report/
+reports/
+allure-results/
+allure-report/
+screenshots/
+*.log
+
+# Environment
+.env
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
