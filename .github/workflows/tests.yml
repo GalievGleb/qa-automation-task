@@ -1,0 +1,115 @@
+# Прогон набора Playwright/Pytest в CI.
+name: Tests
+
+# Когда запускать workflow: пуш в master, любой pull request и ручной запуск.
+# Ручной запуск (workflow_dispatch) позволяет задать произвольный base URL —
+# это и есть демонстрация «environment-dependent» подхода из задания.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Base URL to run the test suite against"
+        required: false
+        default: "https://the-internet.herokuapp.com"
+
+# Новый пуш в ту же ветку отменяет ещё бегущий прогон — не занимаем раннеры зря.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Playwright tests / Python 3.13 / Chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Забираем код репозитория в раннер.
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Ставим Python 3.13 (стек из задания) и кешируем pip между прогонами.
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      # Устанавливаем зависимости проекта.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      # Самые дешёвые проверки — первыми: сначала линт и формат, затем типы,
+      # и только потом дорогая установка браузера и прогон тестов.
+      - name: Run lint checks
+        run: |
+          python -m ruff check .
+          python -m ruff format --check .
+
+      - name: Run static type checks
+        run: python -m mypy
+
+      # Кешируем браузеры Playwright: ключ включает requirements.txt, поэтому
+      # смена версии playwright автоматически инвалидирует кеш.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      # При промахе кеша ставим браузер вместе с системными библиотеками,
+      # при попадании — только системные библиотеки (их кеш не покрывает).
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: python -m playwright install --with-deps chromium
+
+      - name: Install Playwright system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: python -m playwright install-deps chromium
+
+      # Запускаем тесты. BASE_URL берём из ручного ввода, иначе — демо-сайт;
+      # учётные данные — из repository secrets с фоллбеком на публичные демо.
+      # Trace падений и Allure-результаты уже включены в pytest.ini.
+      - name: Run tests
+        env:
+          BASE_URL: ${{ inputs.base_url || 'https://the-internet.herokuapp.com' }}
+          LOGIN_USERNAME: ${{ secrets.LOGIN_USERNAME || 'tomsmith' }}
+          LOGIN_PASSWORD: ${{ secrets.LOGIN_PASSWORD || 'SuperSecretPassword!' }}
+        run: >
+          python -m pytest
+          --html=reports/report.html --self-contained-html
+
+      # HTML-отчёт публикуем всегда — и на успехе, и на падении.
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-report
+          path: reports/
+          retention-days: 30
+
+      # Результаты Allure публикуем всегда: локально из них строится отчёт
+      # командой `allure serve allure-results`.
+      - name: Upload Allure results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results/
+          retention-days: 30
+
+      # Trace'ы, скриншоты и полный лог прогона — только при падении, для разбора.
+      - name: Upload failure traces, screenshots and logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            test-results/
+            logs/
+          retention-days: 30

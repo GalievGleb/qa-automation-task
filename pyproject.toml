@@ -1,0 +1,25 @@
+# Конфигурация статической проверки типов (mypy).
+[tool.mypy]
+python_version = "3.13"
+# Пакеты (config, data, locators, pages) — namespace-пакеты без __init__.py,
+# поэтому указываем корень явно, иначе mypy видит один файл под двумя именами.
+mypy_path = "."
+explicit_package_bases = true
+# Единый источник целей проверки: в CI и README команда — просто `mypy`.
+files = ["config", "data", "locators", "pages", "tests", "conftest.py"]
+strict = true
+
+# Конфигурация линтера и форматтера (ruff).
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle: ошибки стиля
+    "F",   # pyflakes: неиспользуемые импорты/переменные и т.п.
+    "I",   # isort: порядок импортов
+    "UP",  # pyupgrade: устаревшие конструкции
+    "B",   # bugbear: типовые ловушки (mutable default и др.)
+    "SIM", # simplify: упрощаемые конструкции
+]
